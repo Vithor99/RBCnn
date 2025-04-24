@@ -13,7 +13,7 @@ from steady import steady
 import gymnasium as gym
 from gymnasium.envs.registration import register
 from gymnasium.vector import SyncVectorEnv
-
+''' SINGLE ACTION VERSION'''
 '''CONTROLS'''
 #deterministic runs version without shocks, None runs stochastic 
 version = "stochastic" # deterministic ; stochastic 
