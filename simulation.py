@@ -3,23 +3,25 @@ import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
 import warnings
+from steady import steady
 
 
 class Model(gym.Env):
 
-    def __init__(self, k=0, var_k=0, gamma=0, psi=0, delta=0, rhoa=0, alpha=0, T=0, noise=0, version=None):
+    def __init__(self, k=0, var_k=0, gamma=0, psi=0, delta=0, rhoa=0, alpha=0, noise=0, version=None):
         super().__init__()
 
+        self.ss = steady()
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32
         )
         self.action_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32
+            #low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
         )
+
         self.state = np.zeros(2)
         self.time = 0
-
-        self.T = T
         self.gamma = gamma #consumption pref
         self.psi = psi
         self.delta = delta #depreciation rate
@@ -49,9 +51,12 @@ class Model(gym.Env):
         #rescale magnitueds coming from NN
         z = self.state[0]
         k = self.state[1]
-        c = action[0]
-        n = action[1]
+        #c = action[0]
+        n = action
 
+        #compute consumption from FOC
+        c = (self.gamma/self.psi)*(1-n)*z*(1-self.alpha)*((k/n)**self.alpha)
+        c = self.ss.get_consumption(k, z, n) 
         #compute Penalty / reward
         y = z* (k**self.alpha) * (n**(1-self.alpha))
         y = np.nan_to_num(y, nan=0.0)

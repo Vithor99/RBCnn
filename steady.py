@@ -12,7 +12,7 @@ class steady:
         self.alpha = 0.35 #prduction function
         self.var_eps_z = 0.001 #variance of TFP shock 
         self.states = 2 
-        self.actions = 2
+        self.actions = 1
     
     def equations(self, vars):
         c, n, k = vars
@@ -48,6 +48,10 @@ class steady:
 
         return v_ss 
     
+    def get_consumption(self, k, z, n):
+        c = (self.gamma/self.psi)*(1-n)*(1-self.alpha)*z*((k/n)**self.alpha)
+        return c
+    
     def foc_log(self, c, c1, n, n1, k, k1):
         ls = (1-self.alpha)*(k**self.alpha)*(n**(-self.alpha)) - (self.psi/self.gamma)*(c/(1-n))
         ee = (self.gamma/c) - self.beta*(self.gamma/c1)*((1-self.delta)+self.alpha*k1**(self.alpha-1)*n1**(1-self.alpha)) 
@@ -82,15 +86,17 @@ class steady:
         return random_util
     
     def get_random_util(self, z, k):
-        upper_bound_1 = 1.0
-        upper_bound_0 = lambda s0, s1, alpha, a1: s0 * (s1**alpha * a1**(1-alpha))
+        #upper_bound_1 = 1.0
+        #upper_bound_0 = lambda s0, s1, alpha, a1: s0 * (s1**alpha * a1**(1-alpha))
+        lower_bound = (z*(self.gamma/self.psi)*(1-self.alpha))/(1+(z*(self.gamma/self.psi)*(1-self.alpha)))
+        #rnd_a_1 = np.random.uniform(0.0, upper_bound_1)
+        #rnd_a_0 = np.random.uniform(0.0, upper_bound_0(z, k, self.alpha, rnd_a_1))
+        rnd_a = np.random.uniform(lower_bound, 1.0)
+        c = (self.gamma/self.psi)*(1-rnd_a)*z*(1-self.alpha)*((k/rnd_a)**self.alpha)
+        y = z*(k**self.alpha) * (rnd_a**(1-self.alpha))
 
-        rnd_a_1 = np.random.uniform(0.0, upper_bound_1)
-        rnd_a_0 = np.random.uniform(0.0, upper_bound_0(z, k, self.alpha, rnd_a_1))
-        y = z*(k**self.alpha) * (rnd_a_1**(1-self.alpha))
-
-        U = self.gamma*np.log(rnd_a_0)+self.psi*np.log(1-rnd_a_1)
-        k1 = (1-self.delta)*k + y - rnd_a_0
+        U = self.gamma*np.log(c)+self.psi*np.log(1-rnd_a)
+        k1 = (1-self.delta)*k + y - c
         return U, k1
 
     

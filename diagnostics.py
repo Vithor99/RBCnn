@@ -13,7 +13,7 @@ from steady import steady
 from scipy.interpolate import interp1d
 
 '''CONTROLS'''
-rl_model = 'RBC_random_deterministic_T=550.pt' 
+rl_model = 'RBC_foc_random_deterministic.pt' 
 grid_model = 'grid_data_dev10pct.pkl'
 
 run_simulation = "no" #if yes it runs the simulation
@@ -24,7 +24,7 @@ if run_simulation == "yes":
     zoom_factor = 10 # if zoom == "out": pct band around ss that we want to visualize
 
 
-run_policy = "yes" # if yes it runs the policy evaluation
+run_policy = "no" # if yes it runs the policy evaluation
 if run_policy == "yes":
     dev = 5
     N = 500
@@ -46,9 +46,9 @@ parser.add_argument('--seed', default=0, type=int)
 parser.add_argument('--n_layers', default=1, type=int)
 parser.add_argument('--n_neurons', default=128, type=int)
 ''' ALGORITHM '''
-parser.add_argument('--policy_var', default=-4, type=float)
+parser.add_argument('--policy_var', default=-3.0, type=float)
 parser.add_argument('--epsilon_greedy', default=0.0, type=float)
-parser.add_argument('--gamma', default=ss.beta, type=float)
+parser.add_argument('--beta', default=ss.beta, type=float)
 parser.add_argument('--lr', default=1e-3, type=float)
 parser.add_argument('--batch_size', default=2048, type=int)
 parser.add_argument('--learn_std', default=0, type=int)
@@ -58,17 +58,12 @@ parser.add_argument('--n_workers', default=4, type=int)
 args = parser.parse_args()
 device = torch.device('cpu')
 ''' Define Simulator'''
-state_dim = ss.states
-action_dim = ss.actions
-alpha = ss.alpha
 action_bounds = {
-    'order': [1, 0],
-    ''
-    'min': [lambda: 0,
-            lambda: 0],
-    'max': [lambda s0, s1, alpha, a1: s0 * (s1**alpha * a1**(1-alpha)),
-            lambda s0, s1, alpha, a1: 1.0]
+    'min': [lambda s0, gamma, psi, alpha, : (s0*(gamma/psi)*(1-alpha))/(1+(s0*(gamma/psi)*(1-alpha)))],
+    'max': [lambda: 1]
     }
+
+
 ''' Define Model'''
 architecture_params = {'n_layers': args.n_layers,
                        'n_neurons': args.n_neurons,
@@ -77,20 +72,39 @@ architecture_params = {'n_layers': args.n_layers,
                        'use_hard_bounds': args.use_hard_bounds
                        }
 
-agent = ActorCritic(input_dim=state_dim,
+agent = ActorCritic(input_dim=ss.states,
                     architecture_params=architecture_params,
-                    output_dim=action_dim,
+                    output_dim=ss.actions,
                     lr=args.lr,
-                    gamma=args.gamma,
+                    beta=args.beta,
                     epsilon=args.epsilon_greedy,
                     batch_size=args.batch_size,
-                    alpha=alpha,
+                    alpha=ss.alpha,
+                    gamma=ss.gamma,
+                    psi=ss.psi,
                     learn_std=args.learn_std==1,
                     device=device).to(device)
 
 rl_model_path = 'saved_models/' + rl_model
 agent.load_state_dict(torch.load(rl_model_path, map_location=device))
 agent.eval()
+
+
+
+#debugging
+st = np.array([1, k_ss*1.05])
+state = torch.from_numpy(st).float().to(device)
+with torch.no_grad():
+    action_tensor, _ = agent.get_action(state, test=True)
+    n = action_tensor.squeeze().numpy()
+print(f"RL policy: n = {n}")
+
+
+
+
+
+
+
 
 
 # Loading Grid (vi) policy
@@ -122,7 +136,9 @@ if run_simulation == "yes":
         state = torch.from_numpy(st).float().to(device)
         with torch.no_grad():
             action_tensor, _ = agent.get_action(state, test=True)
-            action_rl = action_tensor.squeeze().numpy()
+            n = action_tensor.squeeze().numpy()
+        c = ss.get_consumption(st[1], st[0], n) #get_consumption(self, k, z, n)
+        action_rl = np.array([c, n])
         st1_rl = (1-ss.delta)*st[1] + st[0]*(action_rl[1]**(1-ss.alpha))*(st[1]**ss.alpha) - action_rl[0]
         u_rl = ss.gamma*np.log(action_rl[0]) + ss.psi*np.log(1-action_rl[1])
         rl_v += ss.beta**t * u_rl
@@ -233,9 +249,9 @@ if run_policy == "yes":
         with torch.no_grad():
             action_tensor, _ = agent.get_action(state, test=True)
             action_rl = action_tensor.squeeze().numpy()
-        c_rl = action_rl[0]
-        n_rl = action_rl[1]
-        k1_rl = (1-ss.delta)*st[1] + st[0]*(action_rl[1]**(1-ss.alpha))*(st[1]**ss.alpha) - action_rl[0]
+        c_rl = ss.get_consumption(st[1], st[0], action_rl) #get_consumption(self, k, z, n)
+        n_rl = action_rl
+        k1_rl = (1-ss.delta)*st[1] + st[0]*(n_rl**(1-ss.alpha))*(st[1]**ss.alpha) - c_rl
         #Grid 
         c_grid = optimal_c(k_values[i])
         n_grid = optimal_n(k_values[i])

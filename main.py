@@ -16,16 +16,16 @@ from gymnasium.vector import SyncVectorEnv
 ''' SINGLE ACTION VERSION'''
 '''CONTROLS'''
 #deterministic runs version without shocks, None runs stochastic 
-version = "stochastic" # deterministic ; stochastic 
+version = "deterministic" # deterministic ; stochastic 
 
 #steady starts capital from ss, None from a uniform dist around ss with var_k0
 initial_k = "random" # steady ; random 
-var_k0 = 15           #Pct deviation from ss capital
+var_k0 = 5           #Pct deviation from ss capital
 
 T_test = 550
 T_train = 550
 frq_test = 500 
-EPOCHS = 60000
+EPOCHS = 40000
 
 
 '''SETTING PARAMETERS''' 
@@ -38,7 +38,7 @@ parser.add_argument('--n_neurons', default=128, type=int)
 ''' ALGORITHM '''
 parser.add_argument('--policy_var', default=-3.0, type=float)
 parser.add_argument('--epsilon_greedy', default=0.0, type=float)
-parser.add_argument('--gamma', default=ss.beta, type=float)
+parser.add_argument('--beta', default=ss.beta, type=float)
 parser.add_argument('--lr', default=1e-3, type=float)
 parser.add_argument('--batch_size', default=2048, type=int)
 parser.add_argument('--learn_std', default=0, type=int)
@@ -46,19 +46,19 @@ parser.add_argument('--use_hard_bounds', default=1, type=int)
 ''' SIMULATOR '''
 parser.add_argument('--n_workers', default=4, type=int)
 args = parser.parse_args()
-
 #Saving the seed 
 seed = args.seed
 np.random.seed(seed)
 torch.manual_seed(seed)
 torch.random.manual_seed(seed)
 torch.cuda.manual_seed(seed)
-
 # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 device = torch.device('cpu')
+
+''' NAMING '''
 name_exp = ''
 #string to indicate type in logs
-model_type = initial_k + "_" + version 
+model_type = "foc_" + initial_k + "_" + version 
 sim_length = "_train="+ str(T_train) +"_test="+ str(T_test)
 for k, v in args.__dict__.items():
     if k == 'policy_var':
@@ -72,23 +72,15 @@ if initial_k == "random":
 name_exp += str(sim_length)
 writer = SummaryWriter("logs/"+ name_exp)
 
-''' Define Simulator'''
-c_ss, n_ss, k_ss, y_ss, u_ss = ss.ss()
-state_dim = ss.states
-action_dim = ss.actions
-alpha = ss.alpha
 
+''' Define Action Bounds'''
 action_bounds = {
-    'order': [1, 0],
-    ''
-    'min': [lambda: 0,
-            lambda: 0],
-    'max': [lambda s0, s1, alpha, a1: s0 * (s1**(alpha) * a1**(1-alpha)),
-            lambda s0, s1, alpha, a1: 1.0]
+    'min': [lambda s0, gamma, psi, alpha, : (s0*(gamma/psi)*(1-alpha))/(1+(s0*(gamma/psi)*(1-alpha)))],
+    'max': [lambda: 1]
     }
 
 
-''' Define Model'''
+''' Initialize the network and simulator '''
 architecture_params = {'n_layers': args.n_layers,
                        'n_neurons': args.n_neurons,
                        'policy_var': args.policy_var,
@@ -96,18 +88,20 @@ architecture_params = {'n_layers': args.n_layers,
                        'use_hard_bounds': args.use_hard_bounds
                        }
 
-agent = ActorCritic(input_dim=state_dim,
+agent = ActorCritic(input_dim=ss.states,
                     architecture_params=architecture_params,
-                    output_dim=action_dim,
+                    output_dim=ss.actions,
                     lr=args.lr,
-                    gamma=args.gamma,
+                    beta=args.beta,
                     epsilon=args.epsilon_greedy,
                     batch_size=args.batch_size,
-                    alpha=alpha,
+                    alpha=ss.alpha,
+                    gamma=ss.gamma,
+                    psi=ss.psi,
                     learn_std=args.learn_std==1,
                     device=device).to(device)
 
-
+c_ss, n_ss, k_ss, y_ss, u_ss = ss.ss()
 register(
     id="model",
     entry_point="simulation:Model",
@@ -118,21 +112,15 @@ register(
             'delta': ss.delta,
             'rhoa': ss.rhoa,
             'alpha': ss.alpha,
-            'T': 1000,        #we can remove no? 
             'noise': ss.var_eps_z,
             'version': version},
 )
-
 def make_env():
     return gym.make("model")
-
 test_sim = gym.make("model")
-
-#random_util = ss.get_random_policy_utility(test_sim)
-
 sims = SyncVectorEnv([make_env for _ in range(args.n_workers)])
-# sims = gym.make_vec("model", num_envs=args.n_workers, vectorization_mode="async")
-# sims = gym.make_vec("model", num_envs=args.n_workers, vectorization_mode="sync")
+
+
 
 '''
 Start Training the model 
@@ -163,7 +151,7 @@ for iter in tqdm(range(EPOCHS)):
                 agent.batchdata.push(st[i], a[i], log_prob[i].detach().cpu().numpy(), u[i], st1[i], y[i], float(not done[i]))
 
             st = st1
-            total_utility += np.mean((agent.gamma ** t) * u)
+            total_utility += np.mean((agent.beta ** t) * u)
 
 
     writer.add_scalar("pct welfare gain of steady state to current policy (train)", (-(vss_train-total_utility)/total_utility)*100 , iter) # % of additional utility in steady state  
@@ -195,7 +183,7 @@ for iter in tqdm(range(EPOCHS)):
 
         for _ in range(n_eval):
             last_sim = {}
-            all_actions = np.zeros((T_test, 2))
+            all_actions = np.zeros((T_test, 1))
 
 
             st, _ = test_sim.reset(options=initial_k) 
@@ -215,12 +203,12 @@ for iter in tqdm(range(EPOCHS)):
                                    'st1': st1,
                                    'y': y}
                     all_actions[t, :] = a
-                    total_utility += (agent.gamma ** t) * u
+                    total_utility += (agent.beta ** t) * u
 
                     
                     #random policy 
                     rnd_util, rnd_state1 = ss.get_random_util(st[0], rnd_state0)
-                    random_util += (agent.gamma ** t) * rnd_util
+                    random_util += (agent.beta ** t) * rnd_util
                     rnd_state0 = rnd_state1
                     
 
@@ -230,21 +218,20 @@ for iter in tqdm(range(EPOCHS)):
                         k1 = last_sim[t]['st'][1]
                         z0 = last_sim[t-1]['st'][0]
                         E_z1 = (1-ss.rhoa) + ss.rhoa * z0
-                        c0 = all_actions[t-1,0]
-                        c1 = all_actions[t,0]
-                        n0 = all_actions[t-1,1]
-                        n1 = all_actions[t,1]
+                        n0 = all_actions[t-1]
+                        n1 = all_actions[t]
+                        c0 = ss.get_consumption(k0, z0, n0)
                         c0_star = (ss.gamma/ss.psi)*(1-n0)*z0*(1-ss.alpha)*((k0/n0)**ss.alpha)
                         c_ratio_star = ss.beta*((1 - ss.delta) + E_z1 * ss.alpha * ((k1)**(ss.alpha-1)) * ((n1)**(1-ss.alpha)))
-                        c_ratio = c1/c0
-                        labor_gap += np.abs((c0 - c0_star)/c0_star)
+                        c_ratio = ((ss.gamma/ss.psi)*(1-n1)*E_z1*(1-ss.alpha)*((k1/n1)**ss.alpha))/c0_star
+                        labor_gap += np.abs((c0 - c0_star)/c0_star) # constant at zero
                         euler_gap += np.abs((c_ratio - c_ratio_star)/c_ratio_star)
                     
                     #final distance from ss
                     if t==T_test-1:
                         last_state += st1[1]
-                        last_cons += all_actions[t,0]
-                        last_lab += all_actions[t, 1]
+                        #last_cons += all_actions[t,0]
+                        last_lab += all_actions[t]
 
                     
                     st = st1
@@ -258,7 +245,7 @@ for iter in tqdm(range(EPOCHS)):
         euler_gap /= n_eval*T_test
         labor_gap /= n_eval*T_test
         last_state /= n_eval
-        last_cons /= n_eval 
+        #last_cons /= n_eval 
         last_lab /= n_eval
         random_util /= n_eval
 
@@ -267,10 +254,10 @@ for iter in tqdm(range(EPOCHS)):
         writer.add_scalar("pct welfare gain of steady state to current policy (test)", (-(vss_test-total_utility)/total_utility)*100 , iter)
         writer.add_scalar("pct welfare gain of current policy to random policy", (-(total_utility-random_util)/random_util)*100 , iter) 
         writer.add_scalar("pct distance of k to k_ss", (np.abs(last_state - k_ss)/k_ss)*100, iter)
-        writer.add_scalar("pct distance of c to c_ss", (np.abs(last_cons - c_ss)/c_ss)*100, iter)
+        #writer.add_scalar("pct distance of c to c_ss", (np.abs(last_cons - c_ss)/c_ss)*100, iter)
         writer.add_scalar("pct distance of n to n_ss", (np.abs(last_lab - n_ss)/n_ss)*100, iter)
-        writer.add_scalar("var action 0 per sim", np.var(all_actions[:, 0]), iter)
-        writer.add_scalar("var action 1 per sim", np.var(all_actions[:, 1]), iter)
+        #writer.add_scalar("var action 0 per sim", np.var(all_actions[:, 0]), iter)
+        writer.add_scalar("var action 1 per sim", np.var(all_actions[:]), iter)
 
   
         if best_utility < total_utility:
