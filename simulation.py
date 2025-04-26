@@ -55,7 +55,7 @@ class Model(gym.Env):
         n = action
 
         #compute consumption from FOC
-        c = (self.gamma/self.psi)*(1-n)*z*(1-self.alpha)*((k/n)**self.alpha)
+        #c_debug = (self.gamma/self.psi)*(1-n)*z*(1-self.alpha)*((k/n)**self.alpha)
         c = self.ss.get_consumption(k, z, n) 
         #compute Penalty / reward
         y = z* (k**self.alpha) * (n**(1-self.alpha))
@@ -81,8 +81,8 @@ class Model(gym.Env):
         self.time += 1
 
         done = False
-        if self.time >= self.T:
-            done = True
+        #if self.time >= self.T:
+        #    done = True
 
         return new_state, U, done, False, {'y': y}
 

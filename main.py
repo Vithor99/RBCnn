@@ -20,11 +20,11 @@ version = "deterministic" # deterministic ; stochastic
 
 #steady starts capital from ss, None from a uniform dist around ss with var_k0
 initial_k = "random" # steady ; random 
-var_k0 = 5           #Pct deviation from ss capital
+var_k0 = 1           #Pct deviation from ss capital
 
 T_test = 550
 T_train = 550
-frq_test = 500 
+frq_test = 10 
 EPOCHS = 40000
 
 
@@ -143,7 +143,6 @@ for iter in tqdm(range(EPOCHS)):
             action_tensor, log_prob = agent.get_action(st_tensor)
             a = action_tensor.numpy()
             st1, u, done, _, y = sims.step(a)
-            #u_debug = ss.gamma*np.log(a[0]) + ss.psi * np.log(1-a[1])
 
             y = y['y']
             for i in range(args.n_workers):

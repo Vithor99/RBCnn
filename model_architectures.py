@@ -85,7 +85,8 @@ class StochasticPolicyNetwork(nn.Module):
         #lower_bound = torch.zeros_like(mean[:, 1])
         #upper_bound = torch.ones_like(mean[:, 1]) #* self.action_bounds['max'][1](None, None, None, None)
         #base_dist = D.Normal(mean[:, 1], std[:, 1])
-        lower_bound = torch.ones_like(mean[:, 0]) * self.action_bounds['min'][0](state[:, 0], self.gamma, self.psi, self.alpha)
+        #lower_bound = torch.ones_like(mean[:, 0]) * self.action_bounds['min'][0](state[:, 0], self.gamma, self.psi, self.alpha)
+        lower_bound = torch.ones_like(mean[:, 0]) * (state[:, 0]*(self.gamma/self.psi)*(1-self.alpha))/(1+(state[:, 0]*(self.gamma/self.psi)*(1-self.alpha)))
         upper_bound = torch.ones_like(mean[:, 0]) * 1.0
         base_dist = D.Normal(mean[:, 0], std[:, 0])
         sigmoid_transform = T.SigmoidTransform()

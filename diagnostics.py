@@ -16,7 +16,7 @@ from scipy.interpolate import interp1d
 rl_model = 'RBC_foc_random_deterministic.pt' 
 grid_model = 'grid_data_dev10pct.pkl'
 
-run_simulation = "no" #if yes it runs the simulation
+run_simulation = "yes" #if yes it runs the simulation
 if run_simulation == "yes":
     T = 500
     dev = 5 #Pct initial deviation from steady state
@@ -24,7 +24,7 @@ if run_simulation == "yes":
     zoom_factor = 10 # if zoom == "out": pct band around ss that we want to visualize
 
 
-run_policy = "no" # if yes it runs the policy evaluation
+run_policy = "yes" # if yes it runs the policy evaluation
 if run_policy == "yes":
     dev = 5
     N = 500
@@ -90,23 +90,6 @@ agent.load_state_dict(torch.load(rl_model_path, map_location=device))
 agent.eval()
 
 
-
-#debugging
-st = np.array([1, k_ss*1.05])
-state = torch.from_numpy(st).float().to(device)
-with torch.no_grad():
-    action_tensor, _ = agent.get_action(state, test=True)
-    n = action_tensor.squeeze().numpy()
-print(f"RL policy: n = {n}")
-
-
-
-
-
-
-
-
-
 # Loading Grid (vi) policy
 grid_model_path = 'saved_models/' + grid_model
 with open(grid_model_path, 'rb') as f:
@@ -118,8 +101,6 @@ control_star = loaded_data['control_star']
 optimal_kp = interp1d(kgrid, kp_star, kind="slinear", bounds_error=False, fill_value=0)
 optimal_c  = interp1d(kgrid, control_star[:, 0], kind="slinear", bounds_error=False, fill_value=0)
 optimal_n  = interp1d(kgrid, control_star[:, 1], kind="slinear", bounds_error=False, fill_value=0)
-
-
 
 
 ''' SIMULATION '''
@@ -361,75 +342,3 @@ if run_add_analysis == 1:
     plt.scatter(1, 1, color='green')
     plt.title("DeltL vs DeltC") 
     plt.show() 
-
-''' version for deterministic model'''
-'''
-#open last simulation and rescale variables
-with open("last_sim.pkl", "rb") as f:
-    data = pickle.load(f)
- 
-st = [entry['st'] for _, entry in data.items()]
-a = [entry['a'] for _, entry in data.items()]
-u = [entry['u'] for _, entry in data.items()]
-y = [entry['y'] for _, entry in data.items()]
-k = [pair[1] for pair in st]
-z = [pair[0] for pair in st]
-c = [pair[0] for pair in a]
-n = [pair[1] for pair in a]
-
-# distance from FOC 
-Euler = []
-Lab_supply = []
-for i in range(998):
-    ls, ee = ss.foc_log(c[i], c[i+1], n[i], n[i+1], k[i], k[i+1])
-    Euler.append(ee)
-    Lab_supply.append(ls)
-
-#sum of discounted utilities 
-V=0
-for t in range(999):
-    V += ss.beta**t * u[t]
-
-#plotting variable histories 
-plt.plot(k)
-plt.ylim(10, 15)
-plt.axhline(k_ss, color="green")
-plt.title("k")
-plt.show()
-
-plt.plot(c)
-plt.ylim(0.7, 1.1)
-plt.axhline(c_ss, color="green")
-plt.title("c")
-plt.show()
-
-plt.plot(n)
-plt.ylim(0, 1)
-plt.axhline(n_ss, color="green")
-plt.title("n")
-plt.show()
-
-plt.plot(y)
-plt.ylim(0, 2)
-plt.axhline(y_ss, color="green")
-plt.title("y")
-plt.show()
-
-plt.plot(u)
-plt.ylim(-1.3, 0)
-plt.axhline(u_ss, color="green")
-plt.title("u")
-plt.show()
-
-plt.plot(Euler)
-plt.title('delta Euler')
-plt.show()
-
-plt.plot(Lab_supply)
-plt.title('delta Labour supply')
-plt.show()
-
-print(f"Steady state value = {v_ss}; Value reached by last simulation = {V}")
-print(f"Steady state beats RL by:{V-v_ss}")'
-'''
-
